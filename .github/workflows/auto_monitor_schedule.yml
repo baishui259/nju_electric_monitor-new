@@ -1,0 +1,46 @@
+name: Auto Monitor Schedule
+
+on:
+  schedule:
+    - cron: "0 1,7,13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    env:
+      NJU_USERNAME: ${{ secrets.NJU_USERNAME }}
+      NJU_PASSWORD: ${{ secrets.NJU_PASSWORD }}
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chromium-browser chromium-chromedriver fonts-noto-cjk || true
+          python -m pip install -q -r requirements.txt
+
+      - name: Run monitor
+        run: python3 src/run_workflow_wrapper.py
+
+      - name: Commit and push data
+        if: always()
+        env:
+          GIT_UPDATE_TOKEN: ${{ secrets.GIT_UPDATE_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          branch=${GITHUB_REF##*/}
+          git add -A data/ logs/ || true
+          git commit -m "Auto update: data (run ${GITHUB_RUN_ID})" -q || echo "no changes"
+          git remote set-url origin https://x-access-token:${GIT_UPDATE_TOKEN}@github.com/${{ github.repository }}.git
+          git push origin "HEAD:$branch" || echo "Push failed"
